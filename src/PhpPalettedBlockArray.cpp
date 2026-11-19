@@ -284,16 +284,29 @@ PALETTED_BLOCK_ARRAY_METHOD(__construct) {
 PALETTED_BLOCK_ARRAY_METHOD(fromData) {
 	zend_long bitsPerBlock = 1;
 	zend_string *wordArrayZstr;
-	HashTable *paletteHt = nullptr;
-	zend_string *paletteZstr = nullptr;
+	HashTable *paletteHt;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 3, 3)
 		Z_PARAM_LONG(bitsPerBlock)
 		Z_PARAM_STR(wordArrayZstr)
-		Z_PARAM_ARRAY_HT_OR_STR(paletteHt, paletteZstr)
+		Z_PARAM_ARRAY_HT(paletteHt)
 	ZEND_PARSE_PARAMETERS_END();
 
-	paletted_block_array_from_data(return_value, bitsPerBlock, wordArrayZstr, paletteHt, paletteZstr);
+	paletted_block_array_from_data(return_value, bitsPerBlock, wordArrayZstr, paletteHt, nullptr);
+}
+
+PALETTED_BLOCK_ARRAY_METHOD(fromDataBytes) {
+	zend_long bitsPerBlock = 1;
+	zend_string *wordArrayZstr;
+	zend_string *paletteZstr;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 3, 3)
+		Z_PARAM_LONG(bitsPerBlock)
+		Z_PARAM_STR(wordArrayZstr)
+		Z_PARAM_STR(paletteZstr)
+	ZEND_PARSE_PARAMETERS_END();
+
+	paletted_block_array_from_data(return_value, bitsPerBlock, wordArrayZstr, nullptr, paletteZstr);
 }
 
 PALETTED_BLOCK_ARRAY_METHOD(getWordArray) {

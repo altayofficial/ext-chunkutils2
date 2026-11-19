@@ -11,10 +11,16 @@ final class PalettedBlockArray{
 	public function __construct(int $fillEntry){}
 
 	/**
-	 * @param string|int[] $palette
+	 * @param int[] $palette
 	 * @throws PalettedBlockArrayLoadException if the provided data is invalid in any way
 	 */
-	public static function fromData(int $bitsPerBlock, string $wordArray, array|string $palette) : \pocketmine\world\format\PalettedBlockArray{}
+	public static function fromData(int $bitsPerBlock, string $wordArray, array $palette) : \pocketmine\world\format\PalettedBlockArray{}
+
+	/**
+	 * Same as fromData(), but takes the palette in the format returned by getPaletteBytes().
+	 * @throws PalettedBlockArrayLoadException if the provided data is invalid in any way
+	 */
+	public static function fromDataBytes(int $bitsPerBlock, string $wordArray, string $paletteBytes) : \pocketmine\world\format\PalettedBlockArray{}
 
 	public function getWordArray() : string{}
 

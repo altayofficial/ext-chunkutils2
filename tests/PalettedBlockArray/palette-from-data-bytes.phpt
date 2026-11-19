@@ -1,5 +1,5 @@
 --TEST--
-Test that PalettedBlockArray::fromData() accepts a palette given as raw bytes
+Test that PalettedBlockArray::fromDataBytes() accepts a palette given as raw bytes
 --SKIPIF--
 <?php if(!extension_loaded("chunkutils2")) die("skip extension not loaded"); ?>
 --FILE--
@@ -17,7 +17,7 @@ for($x = 0; $x < 16; $x++){
 	}
 }
 
-$fromBytes = PalettedBlockArray::fromData($array->getBitsPerBlock(), $array->getWordArray(), $array->getPaletteBytes());
+$fromBytes = PalettedBlockArray::fromDataBytes($array->getBitsPerBlock(), $array->getWordArray(), $array->getPaletteBytes());
 $matched = 0;
 for($x = 0; $x < 16; $x++){
 	for($y = 0; $y < 16; $y++){
@@ -48,7 +48,7 @@ $edge = new PalettedBlockArray(0);
 foreach($edgeValues as $i => $value){
 	$edge->set($i, 0, 0, $value);
 }
-$edgeReloaded = PalettedBlockArray::fromData($edge->getBitsPerBlock(), $edge->getWordArray(), $edge->getPaletteBytes());
+$edgeReloaded = PalettedBlockArray::fromDataBytes($edge->getBitsPerBlock(), $edge->getWordArray(), $edge->getPaletteBytes());
 var_dump($edgeReloaded->getPalette() === $edge->getPalette());
 var_dump($edgeReloaded->getPalette() === $edgeValues);
 
@@ -59,7 +59,7 @@ foreach([
 	"",
 ] as $badPalette){
 	try{
-		PalettedBlockArray::fromData($array->getBitsPerBlock(), $array->getWordArray(), $badPalette);
+		PalettedBlockArray::fromDataBytes($array->getBitsPerBlock(), $array->getWordArray(), $badPalette);
 		echo "This is not supposed to work\n";
 	}catch(PalettedBlockArrayLoadException $e){
 		echo $e->getMessage() . "\n";
