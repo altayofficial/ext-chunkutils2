@@ -1,5 +1,4 @@
 #include <new>
-#include <vector>
 
 #include "PhpLightArray.h"
 #include "PhpPalettedBlockArrayObj.h"
@@ -11,6 +10,7 @@ extern "C" {
 #include "php.h"
 #include "ext/standard/php_var.h"
 #include "Zend/zend_exceptions.h"
+#include "Zend/zend_gc.h"
 #include "Zend/zend_hash.h"
 #include "ext/spl/spl_exceptions.h"
 }
@@ -21,7 +21,8 @@ extern "C" {
 
 typedef struct {
 	zend_long emptyBlockId;
-	std::vector<paletted_block_array_obj*> blockLayers;
+	paletted_block_array_obj* blockLayer0;
+	paletted_block_array_obj* blockLayer1;
 	paletted_block_array_obj* biomes;
 	light_array_obj* skyLight;
 	light_array_obj* blockLight;
@@ -59,13 +60,50 @@ static inline sub_chunk_obj* fetch_initialized(zend_object* object) {
 		return; \
 	}
 
+/* owned object helpers */
+
+template<typename object_type>
+static object_type* take_owned_object(zval* zv) {
+	if (zv == nullptr || Z_TYPE_P(zv) != IS_OBJECT) {
+		return nullptr;
+	}
+	Z_ADDREF_P(zv);
+	return fetch_from_zend_object<object_type>(Z_OBJ_P(zv));
+}
+
+template<typename object_type>
+static void release_owned_object(object_type** slot) {
+	if (*slot != nullptr) {
+		object_type* previous = *slot;
+		*slot = nullptr;
+		OBJ_RELEASE(&previous->std);
+	}
+}
+
+template<typename object_type>
+static object_type* clone_owned_object(object_type* object) {
+	if (object == nullptr) {
+		return nullptr;
+	}
+	return fetch_from_zend_object<object_type>(object->std.handlers->clone_obj(&object->std));
+}
+
+template<typename object_type>
+static void return_owned_object_or_null(zval* return_value, object_type* object) {
+	if (object == nullptr) {
+		RETURN_NULL();
+	}
+	RETURN_OBJ_COPY(&object->std);
+}
+
 /* internal object handlers */
 
 static zend_object* sub_chunk_new(zend_class_entry* ce) {
 	sub_chunk_obj* object = alloc_custom_zend_object<sub_chunk_obj>(ce, &sub_chunk_handlers);
 
 	object->emptyBlockId = 0;
-	new(&object->blockLayers) std::vector<paletted_block_array_obj*>();
+	object->blockLayer0 = nullptr;
+	object->blockLayer1 = nullptr;
 	object->biomes = nullptr;
 	object->skyLight = nullptr;
 	object->blockLight = nullptr;
@@ -73,31 +111,16 @@ static zend_object* sub_chunk_new(zend_class_entry* ce) {
 	return &object->std;
 }
 
-template<typename object_type>
-static object_type* clone_owned_object(object_type* object) {
-	return fetch_from_zend_object<object_type>(object->std.handlers->clone_obj(&object->std));
-}
-
 static zend_object* sub_chunk_clone(zend_object* object) {
 	sub_chunk_obj* const old_object = fetch_intern(object);
 	sub_chunk_obj* const new_object = fetch_intern(sub_chunk_new(object->ce));
 
 	new_object->emptyBlockId = old_object->emptyBlockId;
-
-	new_object->blockLayers.reserve(old_object->blockLayers.size());
-	for (auto blockLayer : old_object->blockLayers) {
-		new_object->blockLayers.push_back(clone_owned_object(blockLayer));
-	}
-
-	if (old_object->biomes != nullptr) {
-		new_object->biomes = clone_owned_object(old_object->biomes);
-	}
-	if (old_object->skyLight != nullptr) {
-		new_object->skyLight = clone_owned_object(old_object->skyLight);
-	}
-	if (old_object->blockLight != nullptr) {
-		new_object->blockLight = clone_owned_object(old_object->blockLight);
-	}
+	new_object->blockLayer0 = clone_owned_object(old_object->blockLayer0);
+	new_object->blockLayer1 = clone_owned_object(old_object->blockLayer1);
+	new_object->biomes = clone_owned_object(old_object->biomes);
+	new_object->skyLight = clone_owned_object(old_object->skyLight);
+	new_object->blockLight = clone_owned_object(old_object->blockLight);
 
 	zend_objects_clone_members(&new_object->std, &old_object->std); //copy user-assigned properties
 
@@ -107,28 +130,45 @@ static zend_object* sub_chunk_clone(zend_object* object) {
 static void sub_chunk_free(zend_object* std) {
 	auto object = fetch_intern(std);
 
-	for (auto blockLayer : object->blockLayers) {
-		OBJ_RELEASE(&blockLayer->std);
-	}
-	object->blockLayers.~vector();
-
-	if (object->biomes != nullptr) {
-		OBJ_RELEASE(&object->biomes->std);
-	}
-	if (object->skyLight != nullptr) {
-		OBJ_RELEASE(&object->skyLight->std);
-	}
-	if (object->blockLight != nullptr) {
-		OBJ_RELEASE(&object->blockLight->std);
-	}
+	release_owned_object(&object->blockLayer0);
+	release_owned_object(&object->blockLayer1);
+	release_owned_object(&object->biomes);
+	release_owned_object(&object->skyLight);
+	release_owned_object(&object->blockLight);
 
 	zend_object_std_dtor(std);
 }
 
-static void sub_chunk_serialize_light(smart_str* buf, light_array_obj* lightArray, php_serialize_data_t* serialize_data) {
+//the owned arrays can't point back at anything, but dynamic properties can, so the cycle collector
+//has to see both
+template<typename object_type>
+static void sub_chunk_gc_add(zend_get_gc_buffer* gc_buffer, object_type* object) {
+	if (object != nullptr) {
+		zval zv;
+		ZVAL_OBJ(&zv, &object->std);
+		zend_get_gc_buffer_add_zval(gc_buffer, &zv);
+	}
+}
+
+static HashTable* sub_chunk_get_gc(zend_object* object, zval** table, int* n) {
+	auto intern = fetch_intern(object);
+	zend_get_gc_buffer* gc_buffer = zend_get_gc_buffer_create();
+
+	sub_chunk_gc_add(gc_buffer, intern->blockLayer0);
+	sub_chunk_gc_add(gc_buffer, intern->blockLayer1);
+	sub_chunk_gc_add(gc_buffer, intern->biomes);
+	sub_chunk_gc_add(gc_buffer, intern->skyLight);
+	sub_chunk_gc_add(gc_buffer, intern->blockLight);
+
+	zend_get_gc_buffer_use(gc_buffer, table, n);
+	return zend_std_get_properties(object);
+}
+
+template<typename object_type>
+static void sub_chunk_serialize_nullable(smart_str* buf, object_type* object, php_serialize_data_t* serialize_data) {
 	zval zv;
-	if (lightArray != nullptr) {
-		ZVAL_OBJ(&zv, &lightArray->std);
+	if (object != nullptr) {
+		ZVAL_OBJ(&zv, &object->std);
 	} else {
 		ZVAL_NULL(&zv);
 	}
@@ -150,20 +190,11 @@ static int sub_chunk_serialize(zval* obj, unsigned char** buffer, size_t* buf_le
 	ZVAL_LONG(&zv, object->emptyBlockId);
 	php_var_serialize(&buf, &zv, &serialize_data);
 
-	array_init_size(&zv, object->blockLayers.size());
-	for (auto blockLayer : object->blockLayers) {
-		zval zvLayer;
-		ZVAL_OBJ_COPY(&zvLayer, &blockLayer->std);
-		add_next_index_zval(&zv, &zvLayer);
-	}
-	php_var_serialize(&buf, &zv, &serialize_data);
-	zval_ptr_dtor(&zv);
-
-	ZVAL_OBJ(&zv, &object->biomes->std);
-	php_var_serialize(&buf, &zv, &serialize_data);
-
-	sub_chunk_serialize_light(&buf, object->skyLight, &serialize_data);
-	sub_chunk_serialize_light(&buf, object->blockLight, &serialize_data);
+	sub_chunk_serialize_nullable(&buf, object->blockLayer0, &serialize_data);
+	sub_chunk_serialize_nullable(&buf, object->blockLayer1, &serialize_data);
+	sub_chunk_serialize_nullable(&buf, object->biomes, &serialize_data);
+	sub_chunk_serialize_nullable(&buf, object->skyLight, &serialize_data);
+	sub_chunk_serialize_nullable(&buf, object->blockLight, &serialize_data);
 
 	ZVAL_ARR(&zv, zend_std_get_properties(Z_OBJ_P(obj)));
 	php_var_serialize(&buf, &zv, &serialize_data);
@@ -180,6 +211,10 @@ static inline bool is_instance_of(zval* zv, zend_class_entry* ce) {
 	return Z_TYPE_P(zv) == IS_OBJECT && instanceof_function(Z_OBJCE_P(zv), ce);
 }
 
+static inline bool is_null_or_instance_of(zval* zv, zend_class_entry* ce) {
+	return Z_TYPE_P(zv) == IS_NULL || is_instance_of(zv, ce);
+}
+
 static int sub_chunk_unserialize(zval* object, zend_class_entry* ce, const unsigned char* buf, size_t buf_len, zend_unserialize_data* data) {
 	php_unserialize_data_t unserialize_data = (php_unserialize_data_t)data;
 	PHP_VAR_UNSERIALIZE_INIT(unserialize_data);
@@ -189,7 +224,7 @@ static int sub_chunk_unserialize(zval* object, zend_class_entry* ce, const unsig
 	const unsigned char* start = buf;
 	const unsigned char* end = buf + buf_len;
 
-	zval *emptyBlockId, *blockLayers, *zvBlockLayer, *biomes, *skyLight, *blockLight, *properties;
+	zval *emptyBlockId, *blockLayer0, *blockLayer1, *biomes, *skyLight, *blockLight, *properties;
 	sub_chunk_obj* intern;
 
 	emptyBlockId = var_tmp_var(&unserialize_data);
@@ -201,18 +236,17 @@ static int sub_chunk_unserialize(zval* object, zend_class_entry* ce, const unsig
 		goto end;
 	}
 
-	blockLayers = var_tmp_var(&unserialize_data);
-	if (!php_var_unserialize(blockLayers, &start, end, &unserialize_data) || Z_TYPE_P(blockLayers) != IS_ARRAY) {
-		zend_throw_exception(NULL, "Failed to unserialize SubChunk::blockLayers", 0);
+	blockLayer0 = var_tmp_var(&unserialize_data);
+	if (!php_var_unserialize(blockLayer0, &start, end, &unserialize_data) || !is_null_or_instance_of(blockLayer0, paletted_block_array_entry)) {
+		zend_throw_exception(NULL, "Failed to unserialize SubChunk::blockLayer0", 0);
 		goto end;
 	}
 
-	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(blockLayers), zvBlockLayer) {
-		if (!is_instance_of(zvBlockLayer, paletted_block_array_entry)) {
-			zend_throw_exception_ex(NULL, 0, "SubChunk::blockLayers expects only objects of type %s", ZSTR_VAL(paletted_block_array_entry->name));
-			goto end;
-		}
-	} ZEND_HASH_FOREACH_END();
+	blockLayer1 = var_tmp_var(&unserialize_data);
+	if (!php_var_unserialize(blockLayer1, &start, end, &unserialize_data) || !is_null_or_instance_of(blockLayer1, paletted_block_array_entry)) {
+		zend_throw_exception(NULL, "Failed to unserialize SubChunk::blockLayer1", 0);
+		goto end;
+	}
 
 	biomes = var_tmp_var(&unserialize_data);
 	if (!php_var_unserialize(biomes, &start, end, &unserialize_data) || !is_instance_of(biomes, paletted_block_array_entry)) {
@@ -221,13 +255,13 @@ static int sub_chunk_unserialize(zval* object, zend_class_entry* ce, const unsig
 	}
 
 	skyLight = var_tmp_var(&unserialize_data);
-	if (!php_var_unserialize(skyLight, &start, end, &unserialize_data) || (Z_TYPE_P(skyLight) != IS_NULL && !is_instance_of(skyLight, light_array_entry))) {
+	if (!php_var_unserialize(skyLight, &start, end, &unserialize_data) || !is_null_or_instance_of(skyLight, light_array_entry)) {
 		zend_throw_exception(NULL, "Failed to unserialize SubChunk::skyLight", 0);
 		goto end;
 	}
 
 	blockLight = var_tmp_var(&unserialize_data);
-	if (!php_var_unserialize(blockLight, &start, end, &unserialize_data) || (Z_TYPE_P(blockLight) != IS_NULL && !is_instance_of(blockLight, light_array_entry))) {
+	if (!php_var_unserialize(blockLight, &start, end, &unserialize_data) || !is_null_or_instance_of(blockLight, light_array_entry)) {
 		zend_throw_exception(NULL, "Failed to unserialize SubChunk::blockLight", 0);
 		goto end;
 	}
@@ -235,23 +269,11 @@ static int sub_chunk_unserialize(zval* object, zend_class_entry* ce, const unsig
 	object_init_ex(object, ce);
 	intern = fetch_intern(Z_OBJ_P(object));
 	intern->emptyBlockId = Z_LVAL_P(emptyBlockId);
-
-	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(blockLayers), zvBlockLayer) {
-		intern->blockLayers.push_back(fetch_from_zend_object<paletted_block_array_obj>(Z_OBJ_P(zvBlockLayer)));
-		Z_ADDREF_P(zvBlockLayer);
-	} ZEND_HASH_FOREACH_END();
-
-	intern->biomes = fetch_from_zend_object<paletted_block_array_obj>(Z_OBJ_P(biomes));
-	Z_ADDREF_P(biomes);
-
-	if (Z_TYPE_P(skyLight) == IS_OBJECT) {
-		intern->skyLight = fetch_from_zend_object<light_array_obj>(Z_OBJ_P(skyLight));
-		Z_ADDREF_P(skyLight);
-	}
-	if (Z_TYPE_P(blockLight) == IS_OBJECT) {
-		intern->blockLight = fetch_from_zend_object<light_array_obj>(Z_OBJ_P(blockLight));
-		Z_ADDREF_P(blockLight);
-	}
+	intern->blockLayer0 = take_owned_object<paletted_block_array_obj>(blockLayer0);
+	intern->blockLayer1 = take_owned_object<paletted_block_array_obj>(blockLayer1);
+	intern->biomes = take_owned_object<paletted_block_array_obj>(biomes);
+	intern->skyLight = take_owned_object<light_array_obj>(skyLight);
+	intern->blockLight = take_owned_object<light_array_obj>(blockLight);
 
 	properties = var_tmp_var(&unserialize_data);
 	if (!php_var_unserialize(properties, &start, end, &unserialize_data) || Z_TYPE_P(properties) != IS_ARRAY) {
@@ -267,30 +289,31 @@ end:
 	return result;
 }
 
-static void sub_chunk_collect_garbage(sub_chunk_obj* object) {
-	std::vector<paletted_block_array_obj*> cleanedLayers;
-	cleanedLayers.reserve(object->blockLayers.size());
-
-	for (auto layer : object->blockLayers) {
-		layer->container.collectGarbage(false);
-
-		if (layer->container.getBitsPerBlock() != VanillaPaletteSize::BPB_0 || layer->container.get(0, 0, 0) != (Block)object->emptyBlockId) {
-			cleanedLayers.push_back(layer);
-		} else {
-			OBJ_RELEASE(&layer->std);
-		}
+static void sub_chunk_gc_block_layer(paletted_block_array_obj** layer, zend_long emptyBlockId) {
+	if (*layer == nullptr) {
+		return;
 	}
-	object->blockLayers = std::move(cleanedLayers);
+	(*layer)->container.collectGarbage(false);
+	if ((*layer)->container.getBitsPerBlock() == VanillaPaletteSize::BPB_0 && (*layer)->container.get(0, 0, 0) == (Block)emptyBlockId) {
+		release_owned_object(layer);
+	}
+}
+
+static void sub_chunk_collect_garbage(sub_chunk_obj* object) {
+	sub_chunk_gc_block_layer(&object->blockLayer0, object->emptyBlockId);
+	sub_chunk_gc_block_layer(&object->blockLayer1, object->emptyBlockId);
+	if (object->blockLayer0 == nullptr && object->blockLayer1 != nullptr) {
+		object->blockLayer0 = object->blockLayer1;
+		object->blockLayer1 = nullptr;
+	}
 
 	object->biomes->container.collectGarbage(false);
 
 	if (object->skyLight != nullptr && object->skyLight->lightArray.isUniform(0)) {
-		OBJ_RELEASE(&object->skyLight->std);
-		object->skyLight = nullptr;
+		release_owned_object(&object->skyLight);
 	}
 	if (object->blockLight != nullptr && object->blockLight->lightArray.isUniform(0)) {
-		OBJ_RELEASE(&object->blockLight->std);
-		object->blockLight = nullptr;
+		release_owned_object(&object->blockLight);
 	}
 }
 
@@ -299,14 +322,16 @@ static void sub_chunk_collect_garbage(sub_chunk_obj* object) {
 
 SUB_CHUNK_METHOD(__construct) {
 	zend_long emptyBlockId;
-	HashTable* htBlockLayers;
+	zval* blockLayer0;
+	zval* blockLayer1;
 	zval* biomes;
 	zval* skyLight = NULL;
 	zval* blockLight = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 3, 5)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 4, 6)
 		Z_PARAM_LONG(emptyBlockId)
-		Z_PARAM_ARRAY_HT(htBlockLayers)
+		Z_PARAM_OBJECT_OF_CLASS_EX(blockLayer0, paletted_block_array_entry, 1, 0)
+		Z_PARAM_OBJECT_OF_CLASS_EX(blockLayer1, paletted_block_array_entry, 1, 0)
 		Z_PARAM_OBJECT_OF_CLASS(biomes, paletted_block_array_entry)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_OBJECT_OF_CLASS_EX(skyLight, light_array_entry, 1, 0)
@@ -322,33 +347,12 @@ SUB_CHUNK_METHOD(__construct) {
 		return;
 	}
 
-	zval* layer;
-	ZEND_HASH_FOREACH_VAL(htBlockLayers, layer) {
-		if (!is_instance_of(layer, paletted_block_array_entry)) {
-			zend_type_error("Layers array should contain only %s objects", ZSTR_VAL(paletted_block_array_entry->name));
-			return;
-		}
-	} ZEND_HASH_FOREACH_END();
-
 	intern->emptyBlockId = emptyBlockId;
-
-	intern->blockLayers.reserve(zend_hash_num_elements(htBlockLayers));
-	ZEND_HASH_FOREACH_VAL(htBlockLayers, layer) {
-		intern->blockLayers.push_back(fetch_from_zend_object<paletted_block_array_obj>(Z_OBJ_P(layer)));
-		Z_ADDREF_P(layer);
-	} ZEND_HASH_FOREACH_END();
-
-	intern->biomes = fetch_from_zend_object<paletted_block_array_obj>(Z_OBJ_P(biomes));
-	Z_ADDREF_P(biomes);
-
-	if (skyLight != NULL) {
-		intern->skyLight = fetch_from_zend_object<light_array_obj>(Z_OBJ_P(skyLight));
-		Z_ADDREF_P(skyLight);
-	}
-	if (blockLight != NULL) {
-		intern->blockLight = fetch_from_zend_object<light_array_obj>(Z_OBJ_P(blockLight));
-		Z_ADDREF_P(blockLight);
-	}
+	intern->blockLayer0 = take_owned_object<paletted_block_array_obj>(blockLayer0);
+	intern->blockLayer1 = take_owned_object<paletted_block_array_obj>(blockLayer1);
+	intern->biomes = take_owned_object<paletted_block_array_obj>(biomes);
+	intern->skyLight = take_owned_object<light_array_obj>(skyLight);
+	intern->blockLight = take_owned_object<light_array_obj>(blockLight);
 }
 
 SUB_CHUNK_METHOD(isEmptyAuthoritative) {
@@ -356,14 +360,14 @@ SUB_CHUNK_METHOD(isEmptyAuthoritative) {
 
 	SUB_CHUNK_FETCH_THIS(intern);
 	sub_chunk_collect_garbage(intern);
-	RETURN_BOOL(intern->blockLayers.empty());
+	RETURN_BOOL(intern->blockLayer0 == nullptr && intern->blockLayer1 == nullptr);
 }
 
 SUB_CHUNK_METHOD(isEmptyFast) {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	SUB_CHUNK_FETCH_THIS(intern);
-	RETURN_BOOL(intern->blockLayers.empty());
+	RETURN_BOOL(intern->blockLayer0 == nullptr && intern->blockLayer1 == nullptr);
 }
 
 SUB_CHUNK_METHOD(getEmptyBlockId) {
@@ -383,10 +387,10 @@ SUB_CHUNK_METHOD(getBlockStateId) {
 	ZEND_PARSE_PARAMETERS_END();
 
 	SUB_CHUNK_FETCH_THIS(intern);
-	if (intern->blockLayers.empty()) {
+	if (intern->blockLayer0 == nullptr) {
 		RETURN_LONG(intern->emptyBlockId);
 	}
-	RETURN_LONG(intern->blockLayers[0]->container.get(x, y, z));
+	RETURN_LONG(intern->blockLayer0->container.get(x, y, z));
 }
 
 SUB_CHUNK_METHOD(setBlockStateId) {
@@ -404,36 +408,50 @@ SUB_CHUNK_METHOD(setBlockStateId) {
 		return;
 	}
 
-	paletted_block_array_obj* blockLayer;
-	if (intern->blockLayers.empty()) {
+	if (intern->blockLayer0 == nullptr) {
 		zval zvNewLayer;
 		object_init_ex(&zvNewLayer, paletted_block_array_entry);
-		blockLayer = fetch_from_zend_object<paletted_block_array_obj>(Z_OBJ(zvNewLayer));
-		if (!paletted_block_array_fill(blockLayer, intern->emptyBlockId)) {
+		auto newLayer = fetch_from_zend_object<paletted_block_array_obj>(Z_OBJ(zvNewLayer));
+		if (!paletted_block_array_fill(newLayer, intern->emptyBlockId)) {
 			zval_ptr_dtor(&zvNewLayer);
 			return;
 		}
-		intern->blockLayers.push_back(blockLayer);
-	} else {
-		blockLayer = intern->blockLayers[0];
+		//ownership of the new object's only reference moves to the subchunk
+		intern->blockLayer0 = newLayer;
 	}
-	blockLayer->container.set(x, y, z, block);
+	intern->blockLayer0->container.set(x, y, z, block);
+}
+
+SUB_CHUNK_METHOD(getBlockLayer0) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	SUB_CHUNK_FETCH_THIS(intern);
+	return_owned_object_or_null(return_value, intern->blockLayer0);
+}
+
+SUB_CHUNK_METHOD(getBlockLayer1) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	SUB_CHUNK_FETCH_THIS(intern);
+	return_owned_object_or_null(return_value, intern->blockLayer1);
 }
 
 SUB_CHUNK_METHOD(getBlockLayers) {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	SUB_CHUNK_FETCH_THIS(intern);
-	if (intern->blockLayers.empty()) {
+	if (intern->blockLayer0 == nullptr && intern->blockLayer1 == nullptr) {
 		//most subchunks in a world are air, and the immutable empty array costs nothing to hand out
 		RETURN_EMPTY_ARRAY();
 	}
 
-	array_init_size(return_value, intern->blockLayers.size());
-	for (auto layer : intern->blockLayers) {
-		zval zv;
-		ZVAL_OBJ_COPY(&zv, &layer->std);
-		add_next_index_zval(return_value, &zv);
+	array_init_size(return_value, 2);
+	for (auto layer : {intern->blockLayer0, intern->blockLayer1}) {
+		if (layer != nullptr) {
+			zval zv;
+			ZVAL_OBJ_COPY(&zv, &layer->std);
+			add_next_index_zval(return_value, &zv);
+		}
 	}
 }
 
@@ -446,11 +464,11 @@ SUB_CHUNK_METHOD(getHighestBlockAt) {
 	ZEND_PARSE_PARAMETERS_END();
 
 	SUB_CHUNK_FETCH_THIS(intern);
-	if (intern->blockLayers.empty()) {
+	auto layerZero = intern->blockLayer0;
+	if (layerZero == nullptr) {
 		RETURN_NULL();
 	}
 
-	auto layerZero = intern->blockLayers[0];
 	for (auto y = SUB_CHUNK_EDGE_LENGTH - 1; y >= 0; --y) {
 		if (layerZero->container.get(x, y, z) != (Block)intern->emptyBlockId) {
 			RETURN_LONG(y);
@@ -498,8 +516,7 @@ SUB_CHUNK_METHOD(getBlockLightArray) {
 	ZEND_PARSE_PARAMETERS_END(); \
 	SUB_CHUNK_FETCH_THIS(intern); \
 	light_array_obj* const previous = intern->lightArrayFieldName; \
-	intern->lightArrayFieldName = fetch_from_zend_object<light_array_obj>(Z_OBJ_P(data)); \
-	Z_ADDREF_P(data); \
+	intern->lightArrayFieldName = take_owned_object<light_array_obj>(data); \
 	if (previous != nullptr) { \
 		OBJ_RELEASE(&previous->std); \
 	}
@@ -530,6 +547,7 @@ void register_sub_chunk_class() {
 	sub_chunk_handlers.offset = XtOffsetOf(sub_chunk_obj, std);
 	sub_chunk_handlers.free_obj = sub_chunk_free;
 	sub_chunk_handlers.clone_obj = sub_chunk_clone;
+	sub_chunk_handlers.get_gc = sub_chunk_get_gc;
 
 	zend_class_entry ce;
 	INIT_CLASS_ENTRY(ce, "pocketmine\\world\\format\\SubChunk", class_pocketmine_world_format_SubChunk_methods);

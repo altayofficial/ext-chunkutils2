@@ -11,7 +11,7 @@ use pocketmine\world\format\SubChunk;
 
 var_dump(SubChunk::COORD_BIT_SIZE, SubChunk::COORD_MASK, SubChunk::EDGE_LENGTH);
 
-$sub = new SubChunk(0, [], new PalettedBlockArray(1));
+$sub = new SubChunk(0, null, null, new PalettedBlockArray(1));
 var_dump($sub->getEmptyBlockId());
 var_dump($sub->isEmptyFast());
 var_dump($sub->getHighestBlockAt(0, 0));

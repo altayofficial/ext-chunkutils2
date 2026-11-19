@@ -12,7 +12,7 @@ use pocketmine\world\format\SubChunk;
 $layer = new PalettedBlockArray(0);
 $layer->set(0, 0, 0, 3);
 $biomes = new PalettedBlockArray(1);
-$sub = new SubChunk(0, [$layer], $biomes, null, LightArray::fill(4));
+$sub = new SubChunk(0, $layer, null, $biomes, null, LightArray::fill(4));
 
 $clone = clone $sub;
 var_dump($clone->getBlockStateId(0, 0, 0));

@@ -13,7 +13,7 @@ class NoParentConstructor extends SubChunk{
 	public function __construct(){}
 
 	public function initialize() : void{
-		parent::__construct(0, [], new PalettedBlockArray(3));
+		parent::__construct(0, null, null, new PalettedBlockArray(3));
 	}
 }
 
@@ -23,6 +23,8 @@ $calls = [
 	"getEmptyBlockId" => fn(SubChunk $s) => $s->getEmptyBlockId(),
 	"getBlockStateId" => fn(SubChunk $s) => $s->getBlockStateId(0, 0, 0),
 	"setBlockStateId" => fn(SubChunk $s) => $s->setBlockStateId(0, 0, 0, 1),
+	"getBlockLayer0" => fn(SubChunk $s) => $s->getBlockLayer0(),
+	"getBlockLayer1" => fn(SubChunk $s) => $s->getBlockLayer1(),
 	"getBlockLayers" => fn(SubChunk $s) => $s->getBlockLayers(),
 	"getHighestBlockAt" => fn(SubChunk $s) => $s->getHighestBlockAt(0, 0),
 	"getBiomeArray" => fn(SubChunk $s) => $s->getBiomeArray(),
@@ -57,9 +59,9 @@ $late = new NoParentConstructor();
 $late->initialize();
 var_dump($late->getBiomeArray()->get(0, 0, 0));
 
-$sub = new SubChunk(0, [new PalettedBlockArray(1)], new PalettedBlockArray(0), LightArray::fill(3), LightArray::fill(4));
+$sub = new SubChunk(0, new PalettedBlockArray(1), null, new PalettedBlockArray(0), LightArray::fill(3), LightArray::fill(4));
 try{
-	$sub->__construct(0, [new PalettedBlockArray(2)], new PalettedBlockArray(5));
+	$sub->__construct(0, new PalettedBlockArray(2), null, new PalettedBlockArray(5));
 }catch(\Error $e){
 	echo $e->getMessage() . "\n";
 }

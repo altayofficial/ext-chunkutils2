@@ -10,7 +10,7 @@ use pocketmine\world\format\SubChunk;
 
 $layer = new PalettedBlockArray(0);
 $layer->set(0, 0, 0, 5);
-$sub = new SubChunk(0, [$layer], new PalettedBlockArray(1));
+$sub = new SubChunk(0, $layer, null, new PalettedBlockArray(1));
 
 //repeated calls agree, and hand back the same objects
 var_dump($sub->getBlockLayers() == $sub->getBlockLayers());
@@ -24,7 +24,7 @@ var_dump(count($sub->getBlockLayers()));
 var_dump($sub->getBlockLayers()[0] === $layer);
 
 //a layer created by setBlockStateId must show up
-$empty = new SubChunk(0, [], new PalettedBlockArray(1));
+$empty = new SubChunk(0, null, null, new PalettedBlockArray(1));
 var_dump(count($empty->getBlockLayers()));
 $empty->setBlockStateId(1, 2, 3, 7);
 var_dump(count($empty->getBlockLayers()));
@@ -33,7 +33,7 @@ var_dump($empty->getBlockLayers()[0]->get(1, 2, 3));
 //a layer dropped by collectGarbage must disappear
 $used = new PalettedBlockArray(0);
 $used->set(0, 0, 0, 9);
-$gc = new SubChunk(0, [new PalettedBlockArray(0), $used], new PalettedBlockArray(1));
+$gc = new SubChunk(0, new PalettedBlockArray(0), $used, new PalettedBlockArray(1));
 var_dump(count($gc->getBlockLayers()));
 $gc->collectGarbage();
 var_dump(count($gc->getBlockLayers()));
@@ -45,7 +45,7 @@ unset($gc);
 var_dump($held[0]->get(0, 0, 0));
 
 //clones keep their own layers
-$c1 = new SubChunk(0, [$layer], new PalettedBlockArray(1));
+$c1 = new SubChunk(0, $layer, null, new PalettedBlockArray(1));
 $before = $c1->getBlockLayers();
 $c2 = clone $c1;
 var_dump($c2->getBlockLayers()[0] === $before[0]);

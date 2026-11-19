@@ -8,7 +8,7 @@ Test that SubChunk refuses block IDs that don't fit in a palette entry, like Pal
 use pocketmine\world\format\PalettedBlockArray;
 use pocketmine\world\format\SubChunk;
 
-$sub = new SubChunk(0, [], new PalettedBlockArray(0));
+$sub = new SubChunk(0, null, null, new PalettedBlockArray(0));
 foreach([-1, 0x100000000, PHP_INT_MAX] as $block){
 	try{
 		$sub->setBlockStateId(0, 0, 0, $block);
@@ -23,7 +23,7 @@ $sub->setBlockStateId(0, 0, 0, 0xffffffff);
 var_dump($sub->getBlockStateId(0, 0, 0));
 
 try{
-	new SubChunk(-1, [], new PalettedBlockArray(0));
+	new SubChunk(-1, null, null, new PalettedBlockArray(0));
 }catch(\InvalidArgumentException $e){
 	echo $e->getMessage() . "\n";
 }

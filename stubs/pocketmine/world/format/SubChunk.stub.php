@@ -7,15 +7,14 @@
 namespace pocketmine\world\format;
 
 class SubChunk{
+	/** @var int */
 	public const COORD_BIT_SIZE = 4;
+	/** @var int */
 	public const COORD_MASK = 15;
+	/** @var int */
 	public const EDGE_LENGTH = 16;
 
-	/**
-	 * @param PalettedBlockArray[] $blockLayers
-	 * @phpstan-param list<PalettedBlockArray> $blockLayers
-	 */
-	public function __construct(int $emptyBlockId, array $blockLayers, \pocketmine\world\format\PalettedBlockArray $biomes, ?\pocketmine\world\format\LightArray $skyLight = null, ?\pocketmine\world\format\LightArray $blockLight = null){}
+	public function __construct(int $emptyBlockId, ?\pocketmine\world\format\PalettedBlockArray $blockLayer0, ?\pocketmine\world\format\PalettedBlockArray $blockLayer1, \pocketmine\world\format\PalettedBlockArray $biomes, ?\pocketmine\world\format\LightArray $skyLight = null, ?\pocketmine\world\format\LightArray $blockLight = null){}
 
 	/**
 	 * Returns whether this subchunk contains any non-air blocks.
@@ -40,9 +39,13 @@ class SubChunk{
 
 	public function setBlockStateId(int $x, int $y, int $z, int $block) : void{}
 
+	public function getBlockLayer0() : ?\pocketmine\world\format\PalettedBlockArray{}
+
+	public function getBlockLayer1() : ?\pocketmine\world\format\PalettedBlockArray{}
+
 	/**
 	 * @return PalettedBlockArray[]
-	 * @phpstan-return list<PalettedBlockArray>
+	 * @phpstan-return array{}|array{PalettedBlockArray}|array{PalettedBlockArray, PalettedBlockArray}
 	 */
 	public function getBlockLayers() : array{}
 

@@ -13,7 +13,7 @@ $emptyLayer = new PalettedBlockArray(0);
 $usedLayer = new PalettedBlockArray(0);
 $usedLayer->set(0, 0, 0, 7);
 
-$sub = new SubChunk(0, [$emptyLayer, $usedLayer], new PalettedBlockArray(1), LightArray::fill(0), LightArray::fill(15));
+$sub = new SubChunk(0, $emptyLayer, $usedLayer, new PalettedBlockArray(1), LightArray::fill(0), LightArray::fill(15));
 var_dump(count($sub->getBlockLayers()));
 var_dump($sub->isEmptyAuthoritative());
 var_dump(count($sub->getBlockLayers()));
@@ -21,7 +21,7 @@ var_dump($sub->getBlockLayers()[0] === $usedLayer);
 var_dump($sub->getBlockSkyLightArray()->isUniform(0));
 var_dump($sub->getBlockLightArray()->get(0, 0, 0));
 
-$empty = new SubChunk(0, [new PalettedBlockArray(0)], new PalettedBlockArray(1));
+$empty = new SubChunk(0, new PalettedBlockArray(0), null, new PalettedBlockArray(1));
 var_dump($empty->isEmptyAuthoritative());
 var_dump(count($empty->getBlockLayers()));
 ?>

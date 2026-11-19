@@ -1,9 +1,10 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 8a104dcc3052e4579cd294e6d42cf086e03e36ab */
+ * Stub hash: 4fb6cb09d71194735660d85b83094ff1df1d4129 */
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_class_pocketmine_world_format_SubChunk___construct, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_pocketmine_world_format_SubChunk___construct, 0, 0, 4)
 	ZEND_ARG_TYPE_INFO(0, emptyBlockId, IS_LONG, 0)
-	ZEND_ARG_TYPE_INFO(0, blockLayers, IS_ARRAY, 0)
+	ZEND_ARG_OBJ_INFO(0, blockLayer0, pocketmine\\world\\format\\PalettedBlockArray, 1)
+	ZEND_ARG_OBJ_INFO(0, blockLayer1, pocketmine\\world\\format\\PalettedBlockArray, 1)
 	ZEND_ARG_OBJ_INFO(0, biomes, pocketmine\\world\\format\\PalettedBlockArray, 0)
 	ZEND_ARG_OBJ_INFO_WITH_DEFAULT_VALUE(0, skyLight, pocketmine\\world\\format\\LightArray, 1, "null")
 	ZEND_ARG_OBJ_INFO_WITH_DEFAULT_VALUE(0, blockLight, pocketmine\\world\\format\\LightArray, 1, "null")
@@ -29,6 +30,11 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_pocketmine_world_format_Su
 	ZEND_ARG_TYPE_INFO(0, z, IS_LONG, 0)
 	ZEND_ARG_TYPE_INFO(0, block, IS_LONG, 0)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_pocketmine_world_format_SubChunk_getBlockLayer0, 0, 0, pocketmine\\world\\format\\PalettedBlockArray, 1)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_pocketmine_world_format_SubChunk_getBlockLayer1 arginfo_class_pocketmine_world_format_SubChunk_getBlockLayer0
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_pocketmine_world_format_SubChunk_getBlockLayers, 0, 0, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
@@ -63,6 +69,8 @@ ZEND_METHOD(pocketmine_world_format_SubChunk, isEmptyFast);
 ZEND_METHOD(pocketmine_world_format_SubChunk, getEmptyBlockId);
 ZEND_METHOD(pocketmine_world_format_SubChunk, getBlockStateId);
 ZEND_METHOD(pocketmine_world_format_SubChunk, setBlockStateId);
+ZEND_METHOD(pocketmine_world_format_SubChunk, getBlockLayer0);
+ZEND_METHOD(pocketmine_world_format_SubChunk, getBlockLayer1);
 ZEND_METHOD(pocketmine_world_format_SubChunk, getBlockLayers);
 ZEND_METHOD(pocketmine_world_format_SubChunk, getHighestBlockAt);
 ZEND_METHOD(pocketmine_world_format_SubChunk, getBiomeArray);
@@ -80,6 +88,8 @@ static const zend_function_entry class_pocketmine_world_format_SubChunk_methods[
 	ZEND_ME(pocketmine_world_format_SubChunk, getEmptyBlockId, arginfo_class_pocketmine_world_format_SubChunk_getEmptyBlockId, ZEND_ACC_PUBLIC)
 	ZEND_ME(pocketmine_world_format_SubChunk, getBlockStateId, arginfo_class_pocketmine_world_format_SubChunk_getBlockStateId, ZEND_ACC_PUBLIC)
 	ZEND_ME(pocketmine_world_format_SubChunk, setBlockStateId, arginfo_class_pocketmine_world_format_SubChunk_setBlockStateId, ZEND_ACC_PUBLIC)
+	ZEND_ME(pocketmine_world_format_SubChunk, getBlockLayer0, arginfo_class_pocketmine_world_format_SubChunk_getBlockLayer0, ZEND_ACC_PUBLIC)
+	ZEND_ME(pocketmine_world_format_SubChunk, getBlockLayer1, arginfo_class_pocketmine_world_format_SubChunk_getBlockLayer1, ZEND_ACC_PUBLIC)
 	ZEND_ME(pocketmine_world_format_SubChunk, getBlockLayers, arginfo_class_pocketmine_world_format_SubChunk_getBlockLayers, ZEND_ACC_PUBLIC)
 	ZEND_ME(pocketmine_world_format_SubChunk, getHighestBlockAt, arginfo_class_pocketmine_world_format_SubChunk_getHighestBlockAt, ZEND_ACC_PUBLIC)
 	ZEND_ME(pocketmine_world_format_SubChunk, getBiomeArray, arginfo_class_pocketmine_world_format_SubChunk_getBiomeArray, ZEND_ACC_PUBLIC)
